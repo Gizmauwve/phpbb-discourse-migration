@@ -39,6 +39,55 @@ pip install -r requirements.txt
 
 ## 📊 Workflow de migration
 
+### Orchestration et monitoring
+
+Le pipeline peut être lancé depuis un seul script. Le paramètre `--clone-path` doit désigner le chemin complet choisi lors de la récupération FTP, jusqu’au dossier qui contient `www`.
+
+```powershell
+python scripts/orchestrate_migration.py `
+    --clone-path 'C:\chemin\choisi\Clone_2026' `
+    --php 'C:\xampp\php\php.exe' `
+    --base-url 'http://surfrepotes.fr' `
+    --dashboard-port 8765
+```
+
+Par défaut, l’orchestrateur enchaîne le contrôle du clone, la détection phpBB, l’export et la conversion. L’import Discourse et la validation finale sont activés explicitement :
+
+```powershell
+python scripts/orchestrate_migration.py `
+    --clone-path 'C:\chemin\choisi\Clone_2026' `
+    --php 'C:\xampp\php\php.exe' `
+    --base-url 'http://surfrepotes.fr' `
+    --discourse-url 'http://localhost:3000' `
+    --api-key '<CLE_API>' `
+    --admin-email 'admin@example.com' `
+    --import `
+    --validate `
+    --dashboard-port 8765
+```
+
+Suivi disponible pendant et après l’exécution :
+
+- terminal : progression horodatée et code de chaque étape ;
+- `data/logs/orchestrator.log` : journal textuel complet ;
+- `data/orchestrator/state.json` : état machine des étapes, réutilisable avec `--resume` ;
+- `data/orchestrator/dashboard.html` : tableau de bord graphique auto-actualisé ;
+- `http://127.0.0.1:8765/dashboard.html` si `--dashboard-port` est fourni.
+
+L’orchestrateur s’arrête sur la première erreur. `--resume` réutilise les étapes précédemment réussies. `--skip-files` permet un premier passage plus rapide sans copier les pièces jointes.
+
+### Lanceur graphique
+
+Pour éviter la saisie des chemins et options dans le terminal, lancer :
+
+```powershell
+python scripts/migration_gui.py
+```
+
+Sous Windows, il est aussi possible de double-cliquer sur [Lancer_Migration_GUI.bat](Lancer_Migration_GUI.bat) à la racine du projet. Le fichier utilise automatiquement `venv\Scripts\python.exe` lorsqu’il existe, puis démarre la fenêtre graphique.
+
+La fenêtre permet de sélectionner graphiquement le chemin complet du clone FTP et `php.exe`, de renseigner les URLs, d’activer l’import ou la validation, puis de suivre le journal en direct. Le bouton **Ouvrir le dashboard** ouvre l’état graphique généré par l’orchestrateur.
+
 ### 1️⃣ Lancer Discourse localement
 
 ```bash
