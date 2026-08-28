@@ -1,0 +1,39 @@
+# Environments
+venv/
+env/
+.env
+.env.local
+*.pyc
+__pycache__/
+.Python
+
+# Data (large files)
+data/export/
+data/converted/
+data/logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Test & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Discourse
+/discourse/

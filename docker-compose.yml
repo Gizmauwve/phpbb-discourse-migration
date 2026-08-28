@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: discourse_postgres
+    environment:
+      POSTGRES_DB: discourse
+      POSTGRES_USER: discourse
+      POSTGRES_PASSWORD: discourse_dev_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U discourse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: discourse_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  discourse:
+    image: discourse/base:latest
+    container_name: discourse_app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: discourse
+      POSTGRES_USER: discourse
+      POSTGRES_PASSWORD: discourse_dev_password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DISCOURSE_HOSTNAME: localhost:3000
+      DISCOURSE_PROTOCOL: http
+      DISCOURSE_DEVELOPER_EMAILS: admin@example.com
+      RAILS_ENV: development
+    ports:
+      - "3000:3000"
+    volumes:
+      - discourse_data:/shared
+      - discourse_logs:/var/log/discourse
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  postgres_data:
+  redis_data:
+  discourse_data:
+  discourse_logs:
+
+networks:
+  default:
+    name: discourse_network

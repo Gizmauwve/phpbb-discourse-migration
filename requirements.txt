@@ -1,0 +1,38 @@
+# Migration phpBB → Discourse
+# Python 3.8+
+
+# Base de données
+MySQL-python==1.2.5
+PyMySQL==1.0.2
+
+# API & Requêtes HTTP
+requests==2.31.0
+requests-toolbelt==1.0.0
+
+# Traitement de données
+pandas==2.1.1
+numpy==1.24.3
+
+# Fichiers et formats
+pillow==10.0.0
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Logging et monitoring
+loguru==0.7.2
+tqdm==4.66.1
+
+# Configuration
+python-dotenv==1.0.0
+pyyaml==6.0.1
+
+# Validation
+jsonschema==4.19.1
+
+# Async/Concurrence
+aiohttp==3.9.0
+asyncio==3.4.3
+
+# CLI
+click==8.1.7
+colorama==0.4.6
