@@ -1,0 +1,23 @@
+{
+  "detected_version": "3.0.0",
+  "detection_method": "auto-detected",
+  "php_version_min": "3.0.0",
+  "php_version_max": "3.2.99",
+  "features": {
+    "user_table": "users",
+    "post_column": "post_text",
+    "post_approved_column": "post_approved",
+    "topic_table": "topics",
+    "forum_table": "forums",
+    "has_post_approved": true,
+    "encoding": "utf8mb4",
+    "timestamp_format": "unix"
+  },
+  "database_config": {
+    "host": "localhost",
+    "database": "phpbb_db",
+    "prefix": "phpbb_"
+  },
+  "supported": true,
+  "notes": "Edit this file if auto-detection fails. Set supported=false to skip migration."
+}

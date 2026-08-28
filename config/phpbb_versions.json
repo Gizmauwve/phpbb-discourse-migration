@@ -1,0 +1,80 @@
+{
+  "versions": [
+    {
+      "version": "2.0.x",
+      "supported": "partial",
+      "notes": "Very old version. Database structure is significantly different. Custom export script may be needed.",
+      "features": {
+        "user_table": "users",
+        "post_column": "post_text",
+        "post_approved_column": null,
+        "topic_table": "topics",
+        "forum_table": "forums",
+        "has_post_approved": false,
+        "encoding": "utf8"
+      }
+    },
+    {
+      "version": "3.0.x",
+      "supported": "full",
+      "notes": "Fully supported. Standard phpBB 3.0 structure.",
+      "features": {
+        "user_table": "users",
+        "post_column": "post_text",
+        "post_approved_column": "post_approved",
+        "topic_table": "topics",
+        "forum_table": "forums",
+        "has_post_approved": true,
+        "encoding": "utf8mb4"
+      }
+    },
+    {
+      "version": "3.1.x",
+      "supported": "full",
+      "notes": "Fully supported. Compatible with 3.0.x structure.",
+      "features": {
+        "user_table": "users",
+        "post_column": "post_text",
+        "post_approved_column": "post_approved",
+        "topic_table": "topics",
+        "forum_table": "forums",
+        "has_post_approved": true,
+        "encoding": "utf8mb4"
+      }
+    },
+    {
+      "version": "3.2.x",
+      "supported": "full",
+      "notes": "Fully supported. Latest stable phpBB 3 version.",
+      "features": {
+        "user_table": "users",
+        "post_column": "post_text",
+        "post_approved_column": "post_approved",
+        "topic_table": "topics",
+        "forum_table": "forums",
+        "has_post_approved": true,
+        "encoding": "utf8mb4"
+      }
+    },
+    {
+      "version": "3.3.x",
+      "supported": "experimental",
+      "notes": "Beta version. May have compatibility issues. Test before using in production.",
+      "features": {
+        "user_table": "users",
+        "post_column": "post_text",
+        "post_approved_column": "post_approved",
+        "topic_table": "topics",
+        "forum_table": "forums",
+        "has_post_approved": true,
+        "encoding": "utf8mb4"
+      }
+    },
+    {
+      "version": "4.0.x",
+      "supported": false,
+      "notes": "Not supported. Architecture is completely different from phpBB 3.x. Would require custom implementation.",
+      "features": null
+    }
+  ]
+}
