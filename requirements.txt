@@ -2,7 +2,6 @@
 # Python 3.8+
 
 # Base de données
-MySQL-python==1.2.5
 PyMySQL==1.0.2
 
 # API & Requêtes HTTP

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15-alpine
@@ -32,13 +30,15 @@ services:
       retries: 5
 
   discourse:
-    image: discourse/base:latest
+    image: discourse/discourse:latest
     container_name: discourse_app
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    ports:
+      - "3000:3000"
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -51,8 +51,6 @@ services:
       DISCOURSE_PROTOCOL: http
       DISCOURSE_DEVELOPER_EMAILS: admin@example.com
       RAILS_ENV: development
-    ports:
-      - "3000:3000"
     volumes:
       - discourse_data:/shared
       - discourse_logs:/var/log/discourse
