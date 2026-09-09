@@ -15,6 +15,7 @@ from pathlib import Path
 from datetime import datetime
 import hashlib
 import re
+from tqdm import tqdm
 
 logging.basicConfig(
     level=logging.INFO,
@@ -269,15 +270,20 @@ class PhpBBToDiscourseConverter:
             logger.warning(f"Source files directory not found: {source_files}")
             return
         
+        files = [item for item in source_files.rglob('*') if item.is_file()]
+        progress = tqdm(files, desc="Conversion fichiers", unit="fichier")
         try:
-            for item in source_files.rglob('*'):
-                if item.is_file():
-                    rel_path = item.relative_to(source_files)
-                    target_file = self.output_path / 'files' / rel_path
-                    target_file.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(item, target_file)
+            for item in progress:
+                rel_path = item.relative_to(source_files)
+                progress.set_postfix_str(str(rel_path)[-50:])
+                target_file = self.output_path / 'files' / rel_path
+                target_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(item, target_file)
         except Exception as e:
             logger.error(f"Error converting files: {e}")
+        finally:
+            progress.close()
+        logger.info(f"Converted {len(files)} files to {self.output_path / 'files'}")
     
     @staticmethod
     def _generate_color(seed):

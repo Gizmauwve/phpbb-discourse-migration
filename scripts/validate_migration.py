@@ -15,6 +15,7 @@ from pathlib import Path
 from datetime import datetime
 import requests
 from collections import defaultdict
+from tqdm import tqdm
 
 logging.basicConfig(
     level=logging.INFO,
@@ -213,8 +214,8 @@ class MigrationValidator:
             self.issues['files'].append("Converted files directory not found")
             return False
         
-        source_count = sum(1 for _ in source_files.rglob('*') if _.is_file())
-        converted_count = sum(1 for _ in converted_files.rglob('*') if _.is_file())
+        source_count = sum(1 for _ in tqdm(source_files.rglob('*'), desc="Comptage fichiers source", unit="fichier") if _.is_file())
+        converted_count = sum(1 for _ in tqdm(converted_files.rglob('*'), desc="Comptage fichiers convertis", unit="fichier") if _.is_file())
         
         self.stats['files'] = {
             'source': source_count,

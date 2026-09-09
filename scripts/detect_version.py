@@ -13,7 +13,6 @@ import argparse
 import logging
 import re
 from pathlib import Path
-import pymysql
 from dotenv import load_dotenv
 
 logging.basicConfig(
@@ -279,11 +278,10 @@ class PhpBBVersionDetector:
                 pass
             return True
         
-        # Try database detection
-        if self.detect_from_db():
-            return True
-        
-        logger.error("Could not detect phpBB version")
+        # Database detection is skipped since we are working with a local clone
+        # and the version should be detected from files only.
+        logger.warning("Skipping database detection as we are working with a local clone.")
+        logger.error("Could not detect phpBB version: 'version.php' file is missing in the includes directory.")
         return False
 
 

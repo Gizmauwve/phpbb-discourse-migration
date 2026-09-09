@@ -15,6 +15,7 @@ from pathlib import Path
 from datetime import datetime
 import pymysql
 from dotenv import load_dotenv
+from tqdm import tqdm
 
 # Configuration logging
 logging.basicConfig(
@@ -257,15 +258,20 @@ class PhpBBExporter:
         import shutil
         
         target_dir = self.output_path / 'files'
+        files = [item for item in files_dir.rglob('*') if item.is_file()]
+        progress = tqdm(files, desc="Export fichiers", unit="fichier")
         try:
-            for item in files_dir.rglob('*'):
-                if item.is_file():
-                    rel_path = item.relative_to(files_dir)
-                    target_file = target_dir / rel_path
-                    target_file.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(item, target_file)
+            for item in progress:
+                rel_path = item.relative_to(files_dir)
+                progress.set_postfix_str(str(rel_path)[-50:])
+                target_file = target_dir / rel_path
+                target_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(item, target_file)
         except Exception as e:
             logger.error(f"Error exporting files: {e}")
+        finally:
+            progress.close()
+        logger.info(f"Exported {len(files)} files to {target_dir}")
     
     def run(self, files_only=False, db_only=False):
         """Run complete export."""
