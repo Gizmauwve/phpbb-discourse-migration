@@ -1,735 +1,486 @@
-# 📖 Manual de Migração phpBB → Discourse
+# phpBB → Discourse Migration Manual
 
-**Guia passo a passo para migrar um forum phpBB para Discourse**
+This document describes the current migration workflow for the Surfrepotes forum, moving from **phpBB 3.0.13-PL1** to **Discourse**.
 
----
-
-## 📋 Índice
-
-1. [Pré-requisitos](#pré-requisitos)
-2. [Preparação inicial](#preparação-inicial)
-3. [Detecção de versão](#detecção-de-versão)
-4. [Instalação e configuração](#instalação-e-configuração)
-5. [Execução passo a passo](#execução-passo-a-passo)
-6. [Validação e testes](#validação-e-testes)
-7. [Troubleshooting](#troubleshooting)
-8. [Próximos passos](#próximos-passos)
+The legacy approach based on simulating the entire phpBB forum from an FTP clone, XAMPP, and local phpBB rehosting is no longer the primary workflow. The current migration is centered on the **Discourse phpBB importer/plugin**, a restored phpBB database, and a small set of helper scripts.
 
 ---
 
-## ✅ Pré-requisitos
+## 1. Goal of the migration
 
-### Software necessário
+The objective is to migrate the Surfrepotes forum data from phpBB into Discourse with a controlled, repeatable process.
 
-- ✅ **Git** : Para clonar o repositório
-- ✅ **Python 3.8+** : Para executar os scripts
-- ✅ **Docker & Docker Compose** : Para executar Discourse localmente
-- ✅ **MySQL/MariaDB** : Acesso à base de dados phpBB (ou dump SQL)
-- ✅ **Espaço em disco** : ~20GB (para dados + processamento)
-- ✅ **RAM** : Mínimo 4GB, recomendado 8GB
+The current workflow is designed to:
 
-### Verificar instalações
-
-```bash
-# Verificar Python
-python3 --version
-# Esperado: Python 3.8+
-
-# Verificar Docker
-docker --version
-docker-compose --version
-# Esperado: Docker version 20+
-
-# Verificar MySQL (se local)
-mysql --version
-# Esperado: mysql  Ver 8.0+ ou MariaDB 10.5+
-```
-
-### Dados phpBB necessários
-
-Você deve ter acesso a :
-- 📁 **Diretório do forum** : `/path/to/phpbb/` (clonado ou via FTP)
-  - Contém `config.php`, `includes/`, `files/`, etc.
-- 🗄️ **Base de dados MySQL** : Credenciais de acesso
-  - OU um dump SQL completo (`phpbb_backup.sql`)
+- restore the phpBB database locally;
+- connect the Discourse importer to that local source;
+- run the import in a controlled way;
+- validate the imported content;
+- optionally handle files and media later.
 
 ---
 
-## 🔧 Preparação inicial
+## 2. Required environment
 
-### Passo 1 : Clonar o repositório
+### 2.1 Windows host
 
-```bash
-git clone https://github.com/Gizmauwve/phpbb-discourse-migration.git
-cd phpbb-discourse-migration
-```
+The migration workflow starts from a Windows machine because the original SQL dump and helper launchers are stored there.
 
-### Passo 2 : Verificar estrutura
+You should have:
 
-```bash
-ls -la
-# Esperado:
-# ├── scripts/
-# ├── config/
-# ├── docker-compose.yml
-# ├── requirements.txt
-# ├── README.md
-# ├── CHECKLIST.md
-# └── docs/
-```
+- **Windows 10/11**;
+- **Docker Desktop** installed;
+- access to **WSL2**;
+- **VS Code** installed;
+- the **Dev Containers** extension installed.
 
-### Passo 3 : Criar ambiente Python
+### 2.2 WSL2 Ubuntu
 
-```bash
-# Criar ambiente virtual
-python3 -m venv venv
+The main local tooling runs inside **Ubuntu under WSL2**.
 
-# Ativar (Linux/Mac)
-source venv/bin/activate
+This environment is used to:
 
-# Ou no Windows
-venv\Scripts\activate
-```
+- run shell scripts;
+- interact with Docker;
+- compute checksums;
+- launch VS Code into the Discourse workspace;
+- connect containers to the same Docker network.
 
-### Passo 4 : Instalar dependências
+Typical WSL path layout:
 
-```bash
-pip install --upgrade pip
-pip install -r requirements.txt
-```
+- Discourse repository: `/home/flore/discourse`
+- Windows drive C: mounted under `/mnt/c`
 
-Verificar instalação :
-```bash
-python -c "import pymysql; import requests; print('✓ Dependências OK')"
-```
+### 2.3 Docker
 
----
+Docker is required for:
 
-## 🔍 Detecção de versão
+- the local **Discourse** stack;
+- the temporary **MariaDB** container used to restore the phpBB dump;
+- container networking between Discourse and MariaDB.
 
-### ⚠️ PASSO CRÍTICO : Detectar versão phpBB
+### 2.4 Discourse dev container
 
-**Por que ?** Os scripts precisam saber qual versão phpBB você tem para adaptar as estruturas de dados.
+The Discourse project is opened in a **Dev Container** from VS Code.
 
-### Opção 1 : Auto-detecção (Recomendado)
+That container is where you run:
 
-```bash
-python scripts/detect_version.py --source ../Input --verbose
-```
-
-**O que faz :**
-- ✅ Lê `includes/version.php`
-- ✅ Conecta à base de dados e analisa estrutura
-- ✅ Gera `config/version.json` com configuração detectada
-
-**Saída esperada :**
-```
-✓ Found version 3.0.12 via version.php
-✓ Database connection established
-✓ phpBB version detected: 3.0.12
-✓ Configuration saved to: config/version.json
-```
-
-### Opção 2 : Detecção manual
-
-Se a auto-detecção falhar :
-
-```bash
-# 1. Verificar versão manualmente
-cat ../Input/includes/version.php | grep version
-
-# 2. Editar config/version.json
-# Usar config/version.json.example como template
-```
-
-### Versões suportadas
-
-| Versão | Suporte | Notas |
-|--------|---------|-------|
-| phpBB 2.0.x | ⚠️ Parcial | Estrutura muito diferente |
-| **phpBB 3.0.x** | ✅ Completo | Totalmente suportado |
-| phpBB 3.1.x | ✅ Completo | Compatível com 3.0.x |
-| **phpBB 3.2.x** | ✅ Completo | Última versão estável |
-| phpBB 3.3.x | ⚠️ Experimental | Pode ter problemas |
-| phpBB 4.0.x | ❌ Não | Arquitetura diferente |
-
-**Se versão não suportada :** Criar issue no GitHub.
+- the phpBB import command;
+- the Ruby bundle setup;
+- the import scripts and validation steps.
 
 ---
 
-## 📥 Instalação e configuração
+## 3. Migration architecture
 
-### Passo 1 : Configurar Discourse local
+The current migration flow is:
 
-```bash
-# Iniciar containers Docker
-docker-compose up -d
-
-# Verificar status
-docker-compose ps
-# Esperado: discourse_postgres, discourse_redis, discourse_app = Up
+```text
+Windows SQL dump
+    ↓
+WSL copy/checksum
+    ↓
+Temporary MariaDB container
+    ↓
+Discourse Dev Container
+    ↓
+phpBB importer/plugin
+    ↓
+Validation
 ```
 
-### Passo 2 : Acessar setup wizard
+### What this means
 
-1. Abrir navegador : http://localhost:3000
-2. Completar setup :
-   - Email admin
-   - Username admin
-   - Senha
-   - Nome do site
-3. Aguardar inicialização (pode levar 2-3 min)
+- The **SQL dump** is the source of truth.
+- MariaDB is only a temporary local staging database.
+- Discourse reads from that local MariaDB source through the importer.
+- Validation happens after the import.
 
-### Passo 3 : Gerar API Key
-
-1. Login como admin
-2. Ir para : Admin → Settings → API
-3. Clicar em "Generate New Key"
-4. Copiar a key (será usado depois)
-
-### Passo 4 : Verificar conexão
-
-```bash
-# Testar conexão com Discourse
-python -c "import requests; r = requests.get('http://localhost:3000/api/categories'); print('✓ Discourse conectado' if r.status_code == 200 else '✗ Erro')"
-```
+This avoids rebuilding the old phpBB forum as a full local website.
 
 ---
 
-## 🚀 Execução passo a passo
+## 4. Scripts and their locations
 
-### PHASE 1️⃣ : EXPORT phpBB
+The migration is supported by a small set of scripts and config files.
 
-Extrair dados da base phpBB para JSON.
+### 4.1 Windows launcher
 
-```bash
-python scripts/export_phpbb.py \
-  --source ../Input \
-  --output ./data/export \
-  --verbose
-```
+#### `lancer_discourse.bat`
+**Location:** repository root
 
-**Parâmetros :**
-- `--source` : Caminho do diretório phpBB (default: `../Input`)
-- `--output` : Pasta de destino (default: `./data/export`)
-- `--db-only` : Exportar apenas BD (sem arquivos)
-- `--files-only` : Exportar apenas arquivos
-- `--verbose` : Logs detalhados
-- `--debug` : Stack traces completos
+This is the main Windows launcher used to prepare the local migration environment.
 
-**O que acontece :**
-```
-✓ Conectando a MySQL...
-✓ Exportando 1,234 usuários
-✓ Exportando 45 categorias
-✓ Exportando 5,678 tópicos
-✓ Exportando 89,012 posts
-✓ Copiando 8.69 GB de arquivos...
-✓ Export concluído em 15 minutos
-```
+What it does:
 
-**Saídas geradas :**
-```
-data/export/
-├── users.json           (1-2 MB)
-├── categories.json      (50 KB)
-├── topics.json          (5-10 MB)
-├── posts.json           (100-500 MB)
-├── attachments.json     (1-2 MB)
-└── files/               (8+ GB)
-    ├── avatars/
-    ├── attachments/
-    └── ...
-```
+- starts Docker Desktop;
+- verifies the phpBB SQL dump exists;
+- computes the dump SHA-256 hash;
+- creates or starts the temporary MariaDB container `phpbb-mariadb`;
+- imports the SQL dump only when needed;
+- prepares the Docker network `phpbb_import`;
+- opens the Discourse project in VS Code;
+- reminds you to reopen the project in the Dev Container;
+- provides the import command to run inside the Dev Container.
 
-**Logs :**
-```bash
-tail -f data/logs/export_phpbb.log
-```
+This launcher does **not** run the import itself. It prepares the environment.
 
 ---
 
-### PHASE 2️⃣ : CONVERT para Discourse
+### 4.2 Linux helper script
 
-Converter dados phpBB para formato Discourse (NDJSON).
+#### `surfrepotes-migration.sh`
+**Location:** repository root
 
-```bash
-python scripts/convert_data.py \
-  --input ./data/export \
-  --output ./data/converted \
-  --verbose
-```
+This script is a small WSL helper used to connect containers to the shared Docker network.
 
-**Parâmetros :**
-- `--input` : Pasta do export (default: `./data/export`)
-- `--output` : Pasta de destino (default: `./data/converted`)
-- `--skip-files` : Não copiar arquivos (dados apenas)
-- `--mapping-file` : Arquivo de mapping customizado (JSON)
-- `--verbose` : Logs detalhados
+What it does:
 
-**O que acontece :**
-```
-✓ Convertendo usuários...
-✓ Convertendo BBCode → Markdown...
-✓ Mappeando categorias...
-✓ Organizando tópicos e posts...
-✓ Gerando cores das categorias...
-✓ Conversão concluída em 5 minutos
-```
+- ensures the `phpbb_import` Docker network exists;
+- verifies the MariaDB container is running;
+- detects the Discourse dev container;
+- connects both containers to the same network.
 
-**Conversões automáticas :**
-```
-[b]texto[/b]      → **texto**
-[i]texto[/i]      → *texto*
-[url=...]link[/url] → [link](...)
-[img]url[/img]    → ![image](url)
-[code]...[/code]  → ```...```
-[quote="User"]... → > **User** wrote:\n> ...
-```
-
-**Saídas geradas :**
-```
-data/converted/
-├── users.ndjson       (Formato Discourse)
-├── categories.ndjson
-├── topics.ndjson
-├── posts.ndjson
-└── files/             (Reorganizado)
-```
-
-**Logs :**
-```bash
-tail -f data/logs/convert_data.log
-```
+This is useful when the Dev Container has been created and the import needs network visibility to the MariaDB source.
 
 ---
 
-### PHASE 3️⃣ : IMPORT em Discourse
+### 4.3 Import configuration
 
-Importar dados no Discourse via API.
+#### `surfrepotes.yml`
+**Location:** repository root
+
+This is the phpBB importer configuration file.
+
+It contains:
+
+- the MariaDB connection information;
+- the phpBB table prefix;
+- the local Discourse URL;
+- import options such as attachments, PMs, polls, avatars, etc.;
+- file-location settings for optional media import.
+
+The important settings currently are:
+
+- MariaDB host: `phpbb-mariadb`
+- schema: `surfrepotes`
+- table prefix: `phpbb3_`
+- phpBB base directory: `/workspace/discourse/phpbb_data`
+- Discourse URL: `http://localhost:3000`
+
+---
+
+### 4.4 Dev Container setup helper
+
+#### `setup-devcontainer.sh`
+**Location:** repository root
+
+This helper installs the system dependencies required inside the Discourse Dev Container.
+
+What it does:
+
+- updates apt packages;
+- installs MariaDB development headers;
+- installs build tools and pkg-config;
+- runs `bundle install`.
+
+This script is meant to be run inside the Dev Container.
+
+---
+
+### 4.5 Import runner
+
+#### `run-surfrepotes.sh`
+**Location:** repository root
+
+This is the command that launches the phpBB → Discourse import.
+
+What it does:
+
+- checks that `script/import_scripts/phpbb3/surfrepotes.yml` exists;
+- runs the Discourse importer with that YAML file.
+
+The actual import happens here.
+
+---
+
+## 5. Discourse importer files used by the run script
+
+The `run-surfrepotes.sh` helper points to the importer files under the Discourse repository.
+
+### Importer YAML path
+
+```text
+script/import_scripts/phpbb3/surfrepotes.yml
+```
+
+### Importer Ruby entrypoint
+
+```text
+script/import_scripts/phpbb3.rb
+```
+
+### Copy of the launcher command inside the Dev Container
 
 ```bash
-python scripts/import_discourse.py \
-  --source ./data/converted \
-  --target http://localhost:3000 \
-  --api-key YOUR_API_KEY_HERE \
-  --admin-email admin@example.com \
-  --verbose
+bundle exec ruby script/import_scripts/phpbb3.rb script/import_scripts/phpbb3/surfrepotes.yml
 ```
 
-**Parâmetros :**
-- `--source` : Pasta convertida (default: `./data/converted`)
-- `--target` : URL Discourse (default: `http://localhost:3000`)
-- `--api-key` : Chave API (OBRIGATÓRIO - copiar de Admin → API)
-- `--admin-email` : Email do admin
-- `--batch-size` : Itens por lote (default: 100)
-- `--dry-run` : Simular sem importar
-- `--verbose` : Logs detalhados
+This is the actual import command.
 
-**IMPORTANTE : Gerar API Key**
+---
+
+## 6. The database preparation flow
+
+### Step 1 — Verify the SQL dump
+
+The launcher checks that the dump file exists on Windows:
+
+```text
+C:\Users\flore\source\repos\Surfrepotes\Travail\Input\surfrepotes_mysql_db.sql
+```
+
+It also references the WSL equivalent:
+
+```text
+/mnt/c/Users/flore/source/repos/Surfrepotes/Travail/Input/surfrepotes_mysql_db.sql
+```
+
+### Step 2 — Compute checksum
+
+The script computes a SHA-256 hash for the dump.
+
+This is used to avoid reimporting an unchanged dump on every launch.
+
+### Step 3 — Create or start MariaDB
+
+The temporary MariaDB container is named:
+
+```text
+phpbb-mariadb
+```
+
+It uses:
+
+- root password: `phpbbroot`
+- database name: `surfrepotes`
+
+### Step 4 — Import only if needed
+
+If the dump hash has changed, the database is rebuilt and the dump is imported again.
+
+If the hash is the same, the launcher skips reimporting.
+
+---
+
+## 7. Network setup
+
+The Discourse Dev Container and MariaDB container must share the same Docker network.
+
+The shared network name is:
+
+```text
+phpbb_import
+```
+
+### Why this matters
+
+Discourse runs inside a container, and MariaDB runs inside another container.
+Without a shared Docker network, the importer cannot resolve `phpbb-mariadb` by name.
+
+### Expected connection flow
+
+- MariaDB container joins `phpbb_import`
+- Discourse dev container joins `phpbb_import`
+- the importer resolves `phpbb-mariadb` via Docker DNS
+
+---
+
+## 8. Dev Container workflow
+
+After `lancer_discourse.bat` prepares the environment:
+
+1. Open the project in VS Code.
+2. Reopen it in the Dev Container.
+3. Run the dependency setup if needed:
+
 ```bash
-# 1. Login no http://localhost:3000
-# 2. Admin → Settings → API
-# 3. Clicar em "Generate New Key"
-# 4. Copiar a chave:
-echo "sk-xxxxxxxxxxxxxxxxxxxx"
+./setup-devcontainer.sh
 ```
 
-**Teste primeiro (dry-run) :**
+4. Verify network visibility:
+
 ```bash
-python scripts/import_discourse.py \
-  --source ./data/converted \
-  --target http://localhost:3000 \
-  --api-key YOUR_API_KEY \
-  --dry-run --verbose
+getent hosts phpbb-mariadb
 ```
 
-**Depois import real :**
+5. Run the import:
+
 ```bash
-python scripts/import_discourse.py \
-  --source ./data/converted \
-  --target http://localhost:3000 \
-  --api-key YOUR_API_KEY \
-  --verbose
+./run-surfrepotes.sh
 ```
 
-**O que acontece :**
-```
-=== Importing Users ===
-Users |████████████████| 1,234 [00:45<00:00]
-✓ Imported 1,234/1,234 users
+or directly:
 
-=== Importing Categories ===
-Categories |████████████| 45 [00:02<00:00]
-✓ Imported 45/45 categories
-
-=== Importing Topics ===
-Topics |████████████████| 5,678 [05:30<00:00]
-✓ Imported 5,678/5,678 topics
-
-=== Importing Posts ===
-Posts |████████████████| 89,012 [45:20<00:00]
-✓ Imported 89,012/89,012 posts
-
-✓ Import completed successfully!
-```
-
-**Logs :**
 ```bash
-tail -f data/logs/import_discourse.log
+bundle exec ruby script/import_scripts/phpbb3.rb script/import_scripts/phpbb3/surfrepotes.yml
+```
+
+6. Open Discourse:
+
+```text
+http://localhost:3000
 ```
 
 ---
 
-### PHASE 4️⃣ : VALIDATE Migração
+## 9. Import configuration details
 
-Validar que todos os dados foram importados corretamente.
+### Database section
 
-```bash
-python scripts/validate_migration.py \
-  --phpbb ../Input \
-  --discourse http://localhost:3000 \
-  --verbose
+The importer connects to the temporary MariaDB instance using:
+
+- host: `phpbb-mariadb`
+- port: `3306`
+- username: `root`
+- password: `phpbbroot`
+- schema: `surfrepotes`
+- prefix: `phpbb3_`
+
+### Import section
+
+The configuration currently enables:
+
+- `private_messages: true`
+- `polls: true`
+
+The configuration currently disables:
+
+- `attachments: false`
+- `avatars.uploaded: false`
+- `avatars.gallery: false`
+- `avatars.remote: false`
+- `passwords: false`
+- `likes: false`
+
+### Files section
+
+The base directory is set to:
+
+```text
+/workspace/discourse/phpbb_data
 ```
 
-**Parâmetros :**
-- `--phpbb` : Caminho phpBB (default: `../Input`)
-- `--discourse` : URL Discourse (default: `http://localhost:3000`)
-- `--output` : Arquivo de relatório (default: `data/logs/validation.html`)
-- `--verbose` : Logs detalhados
+This path is only needed when importing files such as:
 
-**O que valida :**
-```
-=== Validating Users ===
-phpBB users: 1,234
-Discourse users: 1,234
-✓ User count matches
-
-=== Validating Categories ===
-phpBB categories: 45
-Discourse categories: 45
-✓ Category count matches
-
-=== Validating Topics ===
-phpBB topics: 5,678
-Discourse topics: 5,678
-✓ Topic count matches
-
-=== Validating Posts ===
-phpBB posts: 89,012
-Discourse posts: 89,012
-✓ Post count matches
-
-✓ All validations passed!
-```
-
-**Abrir relatório HTML :**
-```bash
-open data/logs/validation.html
-# Ou usar seu navegador: file:///absolute/path/data/logs/validation.html
-```
+- attachments;
+- avatars;
+- smilies.
 
 ---
 
-## ✅ Validação e testes
+## 10. Migration phases
 
-### Checklist de validação
+### Phase A — Environment preparation
 
-Use **`CHECKLIST.md`** para validação completa :
+- start Docker Desktop;
+- ensure WSL Ubuntu is available;
+- open the Discourse project in VS Code;
+- create/reuse the MariaDB temporary container;
+- connect the containers to `phpbb_import`.
 
-```bash
-# Ver checklist
-cat CHECKLIST.md
+### Phase B — Source database preparation
 
-# Ou abrir em editor
-vscode CHECKLIST.md
-```
+- verify the SQL dump exists;
+- hash the dump;
+- import it into MariaDB if it is new or changed.
 
-### Testes manuais no Discourse
+### Phase C — Discourse import
 
-1. **Login e navegação**
-   - [ ] Acessar http://localhost:3000
-   - [ ] Login como admin
-   - [ ] Ver todas as categorias
-   - [ ] Clicar em tópicos
-   - [ ] Ver posts
+- reopen the project in the Dev Container;
+- install native dependencies if necessary;
+- run the importer through `run-surfrepotes.sh` or the direct Ruby command.
 
-2. **Conteúdo**
-   - [ ] Textos aparecem corretamente
-   - [ ] Imagens carregam
-   - [ ] BBCode foi convertido para Markdown
-   - [ ] Avatares aparecem
+### Phase D — Validation
 
-3. **Metadados**
-   - [ ] Datas de criação corretas
-   - [ ] Nomes de usuários corretos
-   - [ ] Contagem de posts por tópico
+- check the import results in Discourse;
+- confirm the main forum objects are present;
+- review warnings and skipped records.
 
-### Comparação phpBB vs Discourse
+### Phase E — Optional media handling
 
-```bash
-# Ver estatísticas de export
-jq 'length' data/export/users.json
-jq 'length' data/export/posts.json
-
-# Comparar com Discourse via API
-curl -s http://localhost:3000/api/users | jq '.users | length'
-curl -s http://localhost:3000/api/posts | jq '.posts | length'
-```
+- only if needed, prepare `phpbb_data/files` and `phpbb_data/images`;
+- enable attachments and avatar options later.
 
 ---
 
-## 🔧 Troubleshooting
+## 11. Validation checklist
 
-### Erro : "config.php not found"
+After the import, verify at minimum:
 
-```
-FileNotFoundError: config.php not found at /path/to/Input/config.php
-```
-
-**Solução :**
-```bash
-# Verificar caminho
-ls -la ../Input/config.php
-
-# Se não existe, copiar corretamente
-cp /path/correto/phpbb/config.php ../Input/
-
-# Tentar novamente
-python scripts/export_phpbb.py --source ../Input --verbose
-```
-
-### Erro : "Database connection refused"
-
-```
-ConnectionRefusedError: (2003, "Can't connect to MySQL server")
-```
-
-**Solução :**
-```bash
-# Verificar MySQL
-mysql -h localhost -u phpbb_user -p -e "SELECT 1"
-
-# Se erro, verificar credenciais em config.php
-grep -E "dbhost|dbuser|dbpasswd|dbname" ../Input/config.php
-
-# Editar config/version.json com credenciais corretas
-```
-
-### Erro : "401 Unauthorized" (API Key inválida)
-
-```
-401 Unauthorized: Invalid API key
-```
-
-**Solução :**
-```bash
-# Verificar se Discourse está rodando
-docker-compose ps
-
-# Regenerar API key
-# 1. Acessar http://localhost:3000
-# 2. Admin → Settings → API
-# 3. Click "Generate New Key"
-# 4. Copiar nova chave
-
-# Tentar import novamente
-python scripts/import_discourse.py ... --api-key NEW_KEY_HERE
-```
-
-### Erro : "Timeout" durante import
-
-```
-TimeoutError: Request timed out
-```
-
-**Solução :**
-```bash
-# Reduzir batch size
-python scripts/import_discourse.py \
-  ... \
-  --batch-size 50 \
-  --verbose
-
-# Ou aumentar memória de Discourse
-docker-compose down
-# Editar docker-compose.yml: aumentar memory_limit
-docker-compose up -d
-```
-
-### Erro : "Espaço em disco insuficiente"
-
-```
-DiskError: No space left on device
-```
-
-**Solução :**
-```bash
-# Verificar espaço
-df -h
-
-# Limpar dados antigos
-rm -rf data/export data/converted data/logs/*
-
-# Ou usar --skip-files para migrar dados apenas
-python scripts/convert_data.py --input ./data/export --skip-files
-```
-
-### Ver logs completos
-
-```bash
-# Export logs
-tail -100 data/logs/export_phpbb.log
-
-# Convert logs
-tail -100 data/logs/convert_data.log
-
-# Import logs
-tail -100 data/logs/import_discourse.log
-
-# Validation logs
-tail -100 data/logs/validation.log
-
-# Todos os logs (live)
-watch 'ls -lt data/logs/*.log | head -1 && tail -10 data/logs/*.log'
-```
+- users imported correctly;
+- categories imported correctly;
+- topics imported correctly;
+- posts imported correctly;
+- private messages preserved if enabled;
+- poll data imported if enabled;
+- timestamps look correct;
+- internal links resolve sensibly;
+- the Discourse forum is accessible in the browser.
 
 ---
 
-## 📊 Exemplo de execução completa
+## 12. What is obsolete now
 
-### Cenário : Migração 8.69 GB com phpBB 3.0.12
+The following are legacy and should not be treated as the main migration path anymore:
 
-```bash
-# ======================================
-# 1. SETUP
-# ======================================
-cd phpbb-discourse-migration
-source venv/bin/activate
+- rebuilding the phpBB forum locally via XAMPP;
+- simulating the old forum from an FTP clone as the central workflow;
+- export/convert/import JSON pipeline as the primary strategy;
+- custom API-based import scripts as the main migration path.
 
-# ======================================
-# 2. DETECT VERSION
-# ======================================
-python scripts/detect_version.py --source ../Input --verbose
-# ✓ Found version 3.0.12
+These may still exist as historical context, but they are not the current operating model.
 
-# ======================================
-# 3. START DISCOURSE
-# ======================================
-docker-compose up -d
-sleep 60  # Aguardar inicialização
-open http://localhost:3000  # Setup wizard
-# Completar setup... copiar API key
+---
 
-# ======================================
-# 4. EXPORT
-# ======================================
-time python scripts/export_phpbb.py --source ../Input --verbose
-# ✓ Export concluído em 15 minutos
+## 13. Practical quick start
 
-# ======================================
-# 5. CONVERT
-# ======================================
-time python scripts/convert_data.py --input ./data/export --verbose
-# ✓ Conversion concluído em 5 minutos
+### On Windows
 
-# ======================================
-# 6. DRY RUN
-# ======================================
-python scripts/import_discourse.py \
-  --source ./data/converted \
-  --target http://localhost:3000 \
-  --api-key sk-xxxx \
-  --dry-run --verbose
-# ✓ Simulation OK
+Run:
 
-# ======================================
-# 7. IMPORT REAL
-# ======================================
-time python scripts/import_discourse.py \
-  --source ./data/converted \
-  --target http://localhost:3000 \
-  --api-key sk-xxxx \
-  --verbose
-# ✓ Import concluído em 60 minutos
-
-# ======================================
-# 8. VALIDATE
-# ======================================
-time python scripts/validate_migration.py \
-  --phpbb ../Input \
-  --discourse http://localhost:3000 \
-  --verbose
-# ✓ Validation OK
-open data/logs/validation.html
-
-# ======================================
-# ✅ MIGRATION COMPLETE
-# ======================================
-echo "Forum migrado com sucesso!"
-echo "Acessar: http://localhost:3000"
+```bat
+lancer_discourse.bat
 ```
 
-**Tempo total esperado :** ~90 minutos para 8.69 GB
-- Export : 15 min
-- Convert : 5 min
-- Import : 60 min
-- Validate : 5 min
-- Setup/overhead : 5 min
+### Then in VS Code
+
+- reopen in the Dev Container;
+- run `./setup-devcontainer.sh` if needed;
+- verify `phpbb-mariadb` is reachable;
+- run `./run-surfrepotes.sh`.
+
+### Then validate
+
+Open:
+
+```text
+http://localhost:3000
+```
+
+and inspect the imported forum.
 
 ---
 
-## 🎯 Próximos passos
+## 14. Summary
 
-### Após validação bem-sucedida
+Current migration flow:
 
-1. **Testes com usuários**
-   - Criar algumas contas teste
-   - Testar login/navegação
-   - Verificar permissões
-
-2. **Otimização**
-   - Rebuild search index : `./rake search:index`
-   - Vacuum database : `./rake db:vacuum`
-   - Precompile assets : `./rake assets:precompile`
-
-3. **Backup Discourse**
-   ```bash
-   docker exec discourse_app ./bin/discourse backup
-   ```
-
-4. **Produção** (se aplicável)
-   - Deploy em servidor prod
-   - Configurar domínio
-   - SSL/HTTPS
-   - Backups regulares
-
-5. **Documentação**
-   - Arquivar logs
-   - Documentar customizações
-   - Criar runbook para futuros admins
-
-### Recursos adicionais
-
-- **Discourse docs** : https://meta.discourse.org
-- **GitHub issues** : https://github.com/Gizmauwve/phpbb-discourse-migration/issues
-- **Chat support** : Discord/Slack (se aplicável)
-
----
-
-## 📞 Suporte
-
-**Algo deu errado ?**
-
-1. Verificar **CHECKLIST.md** para troubleshooting
-2. Revisar logs em `data/logs/`
-3. Testar com `--verbose` e `--debug`
-4. Criar issue no GitHub com :
-   - Versão phpBB
-   - Comando executado
-   - Erro completo
-   - Logs relevantes
-
----
-
-**Sucesso na migração! 🚀**
+1. start Docker Desktop;
+2. verify the SQL dump;
+3. restore/update MariaDB if needed;
+4. connect MariaDB and Discourse to `phpbb_import`;
+5. open the project in the Discourse Dev Container;
+6. run the import with `run-surfrepotes.sh`;
+7. validate the imported forum in Discourse;
+8. handle files/media later if needed.
