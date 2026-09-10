@@ -2,21 +2,28 @@
 
 This document describes the current migration workflow for the Surfrepotes forum, moving from **phpBB 3.0.13-PL1** to **Discourse**.
 
-The legacy approach based on simulating the entire phpBB forum from an FTP clone, XAMPP, and local phpBB rehosting is no longer the primary workflow. The current migration is centered on the **Discourse phpBB importer/plugin**, a restored phpBB database, and a small set of helper scripts.
+The previous forum-simulation approach based on an FTP clone, XAMPP, and a local rehosting of phpBB is now considered legacy context. The active migration process is centered on the **Discourse phpBB importer/plugin**, a restored phpBB database, and a small set of helper scripts that prepare, run, and validate the migration.
 
 ---
 
-## 1. Goal of the migration
+## 1. Purpose of the migration
 
-The objective is to migrate the Surfrepotes forum data from phpBB into Discourse with a controlled, repeatable process.
+The goal is to migrate the Surfrepotes phpBB forum into Discourse in a way that is:
 
-The current workflow is designed to:
+- repeatable;
+- traceable;
+- testable locally;
+- safe for the original source data;
+- easy to validate and rerun if needed.
 
-- restore the phpBB database locally;
-- connect the Discourse importer to that local source;
-- run the import in a controlled way;
-- validate the imported content;
-- optionally handle files and media later.
+The migration is split into clear phases:
+
+1. prepare the local environment;
+2. restore the phpBB SQL dump into MariaDB;
+3. connect the Discourse importer to that source;
+4. run the import;
+5. validate the imported forum;
+6. optionally handle files and media later.
 
 ---
 
@@ -24,297 +31,350 @@ The current workflow is designed to:
 
 ### 2.1 Windows host
 
-The migration workflow starts from a Windows machine because the original SQL dump and helper launchers are stored there.
+The process starts on Windows because the source dump and the main launcher are stored there.
 
-You should have:
+Required components:
 
-- **Windows 10/11**;
-- **Docker Desktop** installed;
-- access to **WSL2**;
-- **VS Code** installed;
-- the **Dev Containers** extension installed.
+- Windows 10 or Windows 11
+- Docker Desktop
+- WSL2
+- VS Code
+- VS Code Dev Containers extension
+
+Windows is used to:
+
+- launch Docker Desktop;
+- run the batch launcher;
+- access the SQL dump stored on `C:`;
+- open the Discourse project in VS Code through WSL.
+
+---
 
 ### 2.2 WSL2 Ubuntu
 
-The main local tooling runs inside **Ubuntu under WSL2**.
+The working shell environment is Ubuntu under WSL2.
 
 This environment is used to:
 
 - run shell scripts;
-- interact with Docker;
+- communicate with Docker;
 - compute checksums;
-- launch VS Code into the Discourse workspace;
-- connect containers to the same Docker network.
+- open the Discourse workspace in VS Code;
+- connect Docker containers to the same network.
 
-Typical WSL path layout:
+Relevant paths:
 
-- Discourse repository: `/home/flore/discourse`
-- Windows drive C: mounted under `/mnt/c`
+- Discourse repository in WSL: `/home/flore/discourse`
+- Windows C: drive in WSL: `/mnt/c`
+
+---
 
 ### 2.3 Docker
 
 Docker is required for:
 
-- the local **Discourse** stack;
-- the temporary **MariaDB** container used to restore the phpBB dump;
-- container networking between Discourse and MariaDB.
+- the Discourse development stack;
+- the temporary MariaDB container used to restore the phpBB dump;
+- the shared Docker network between the two containers.
 
-### 2.4 Discourse dev container
-
-The Discourse project is opened in a **Dev Container** from VS Code.
-
-That container is where you run:
-
-- the phpBB import command;
-- the Ruby bundle setup;
-- the import scripts and validation steps.
+You must have Docker Desktop running before the migration can proceed.
 
 ---
 
-## 3. Migration architecture
+### 2.4 Discourse Dev Container
 
-The current migration flow is:
+The actual import is run inside the Discourse Dev Container.
 
-```text
-Windows SQL dump
-    ↓
-WSL copy/checksum
-    ↓
-Temporary MariaDB container
-    ↓
-Discourse Dev Container
-    ↓
-phpBB importer/plugin
-    ↓
-Validation
-```
+That container is where you:
 
-### What this means
-
-- The **SQL dump** is the source of truth.
-- MariaDB is only a temporary local staging database.
-- Discourse reads from that local MariaDB source through the importer.
-- Validation happens after the import.
-
-This avoids rebuilding the old phpBB forum as a full local website.
+- install Ruby/native dependencies if needed;
+- run `bundle install`;
+- verify network access to MariaDB;
+- execute the Discourse phpBB importer.
 
 ---
 
-## 4. Scripts and their locations
+## 3. Repository layout and script inventory
 
-The migration is supported by a small set of scripts and config files.
+This repository contains both migration documentation and helper scripts.
 
-### 4.1 Windows launcher
+### 3.1 Repository root scripts
 
-#### `lancer_discourse.bat`
+These scripts live at the **root of this repository**:
+
+- `lancer_discourse.bat`
+- `surfrepotes-migration.sh`
+- `surfrepotes.yml`
+- `setup-devcontainer.sh`
+- `run-surfrepotes.sh`
+
+### 3.2 Discourse importer files
+
+These files live inside the **Discourse repository**, not this repo:
+
+- `script/import_scripts/phpbb3.rb`
+- `script/import_scripts/phpbb3/surfrepotes.yml`
+
+The helper runner `run-surfrepotes.sh` points to these files.
+
+---
+
+## 4. Script details
+
+### 4.1 `lancer_discourse.bat`
 **Location:** repository root
 
-This is the main Windows launcher used to prepare the local migration environment.
+This is the main Windows entry script.
 
-What it does:
+#### Responsibilities
 
-- starts Docker Desktop;
-- verifies the phpBB SQL dump exists;
-- computes the dump SHA-256 hash;
-- creates or starts the temporary MariaDB container `phpbb-mariadb`;
-- imports the SQL dump only when needed;
-- prepares the Docker network `phpbb_import`;
-- opens the Discourse project in VS Code;
-- reminds you to reopen the project in the Dev Container;
-- provides the import command to run inside the Dev Container.
+- start Docker Desktop;
+- wait until Docker is ready;
+- verify the SQL dump exists;
+- compute the dump SHA-256 hash;
+- create or start the temporary MariaDB container `phpbb-mariadb`;
+- import the dump only if needed;
+- create or reuse the Docker network `phpbb_import`;
+- open the Discourse project in VS Code through WSL;
+- provide instructions for the Dev Container and the import step.
 
-This launcher does **not** run the import itself. It prepares the environment.
+#### Why it matters
+
+This script prepares the local migration environment and avoids reimporting the same SQL dump unnecessarily.
+
+#### Important paths used by the script
+
+- Windows source dump:
+  `C:\Users\flore\source\repos\Surfrepotes\Travail\Input\surfrepotes_mysql_db.sql`
+
+- WSL source dump:
+  `/mnt/c/Users/flore/source/repos/Surfrepotes/Travail/Input/surfrepotes_mysql_db.sql`
+
+- Local WSL copy of the dump:
+  `/home/flore/discourse/surfrepotes_mysql_db.sql`
+
+- SHA-256 state file:
+  `/home/flore/discourse/.surfrepotes_sql.sha256`
+
+#### Important containers and values
+
+- MariaDB container: `phpbb-mariadb`
+- MariaDB root password: `phpbbroot`
+- MariaDB database: `surfrepotes`
+- Docker network: `phpbb_import`
 
 ---
 
-### 4.2 Linux helper script
-
-#### `surfrepotes-migration.sh`
+### 4.2 `surfrepotes-migration.sh`
 **Location:** repository root
 
-This script is a small WSL helper used to connect containers to the shared Docker network.
+This is the WSL helper script that prepares Docker networking.
 
-What it does:
+#### Responsibilities
 
-- ensures the `phpbb_import` Docker network exists;
-- verifies the MariaDB container is running;
-- detects the Discourse dev container;
-- connects both containers to the same network.
+- ensure the Docker network `phpbb_import` exists;
+- verify that `phpbb-mariadb` is running;
+- detect the Discourse Dev Container;
+- connect both containers to the shared network.
 
-This is useful when the Dev Container has been created and the import needs network visibility to the MariaDB source.
+#### Why it matters
+
+The importer must be able to resolve `phpbb-mariadb` by hostname from inside the Dev Container.
+
+#### Usage
+
+Run it from WSL after the Dev Container exists, or when you need to repair the Docker network setup.
 
 ---
 
-### 4.3 Import configuration
-
-#### `surfrepotes.yml`
+### 4.3 `surfrepotes.yml`
 **Location:** repository root
 
-This is the phpBB importer configuration file.
+This is the importer configuration file.
 
-It contains:
+#### Responsibilities
 
-- the MariaDB connection information;
-- the phpBB table prefix;
-- the local Discourse URL;
-- import options such as attachments, PMs, polls, avatars, etc.;
-- file-location settings for optional media import.
+- define the MariaDB connection;
+- define the phpBB table prefix;
+- define the Discourse target URL;
+- enable or disable import features;
+- optionally define file locations for avatars, attachments, and smilies.
 
-The important settings currently are:
+#### Important settings
 
-- MariaDB host: `phpbb-mariadb`
-- schema: `surfrepotes`
-- table prefix: `phpbb3_`
-- phpBB base directory: `/workspace/discourse/phpbb_data`
-- Discourse URL: `http://localhost:3000`
+- `database.host: phpbb-mariadb`
+- `database.port: 3306`
+- `database.username: root`
+- `database.password: phpbbroot`
+- `database.schema: surfrepotes`
+- `database.table_prefix: phpbb3_`
+- `import.phpbb_base_dir: /workspace/discourse/phpbb_data`
+- `import.site_prefix.original: www.surfrepotes.fr/forum`
+- `import.site_prefix.new: http://localhost:3000`
+
+#### Import toggles currently set
+
+Enabled:
+
+- `private_messages: true`
+- `polls: true`
+
+Disabled for the first pass:
+
+- `attachments: false`
+- `avatars.uploaded: false`
+- `avatars.gallery: false`
+- `avatars.remote: false`
+- `passwords: false`
+- `likes: false`
+
+#### Why it matters
+
+This file controls what the importer does and what data source it uses.
 
 ---
 
-### 4.4 Dev Container setup helper
-
-#### `setup-devcontainer.sh`
+### 4.4 `setup-devcontainer.sh`
 **Location:** repository root
 
-This helper installs the system dependencies required inside the Discourse Dev Container.
+This script prepares the Discourse Dev Container.
 
-What it does:
+#### Responsibilities
 
-- updates apt packages;
-- installs MariaDB development headers;
-- installs build tools and pkg-config;
-- runs `bundle install`.
+- update apt package lists;
+- install system packages required by the importer;
+- install MariaDB development headers;
+- install build tools;
+- run `bundle install`.
 
-This script is meant to be run inside the Dev Container.
+#### Usage
+
+Run it inside the Dev Container before running the import if dependencies are missing.
 
 ---
 
-### 4.5 Import runner
-
-#### `run-surfrepotes.sh`
+### 4.5 `run-surfrepotes.sh`
 **Location:** repository root
 
-This is the command that launches the phpBB → Discourse import.
+This script launches the actual import.
 
-What it does:
+#### Responsibilities
 
-- checks that `script/import_scripts/phpbb3/surfrepotes.yml` exists;
-- runs the Discourse importer with that YAML file.
+- verify that the importer YAML file exists;
+- invoke the Discourse importer through Ruby;
+- run the phpBB → Discourse import using the current config.
 
-The actual import happens here.
-
----
-
-## 5. Discourse importer files used by the run script
-
-The `run-surfrepotes.sh` helper points to the importer files under the Discourse repository.
-
-### Importer YAML path
-
-```text
-script/import_scripts/phpbb3/surfrepotes.yml
-```
-
-### Importer Ruby entrypoint
-
-```text
-script/import_scripts/phpbb3.rb
-```
-
-### Copy of the launcher command inside the Dev Container
+#### It runs this command internally
 
 ```bash
 bundle exec ruby script/import_scripts/phpbb3.rb script/import_scripts/phpbb3/surfrepotes.yml
 ```
 
-This is the actual import command.
+#### Why it matters
+
+This is the script that actually starts the migration inside the Discourse environment.
 
 ---
 
-## 6. The database preparation flow
+## 5. Procedure overview
 
-### Step 1 — Verify the SQL dump
-
-The launcher checks that the dump file exists on Windows:
-
-```text
-C:\Users\flore\source\repos\Surfrepotes\Travail\Input\surfrepotes_mysql_db.sql
-```
-
-It also references the WSL equivalent:
-
-```text
-/mnt/c/Users/flore/source/repos/Surfrepotes/Travail/Input/surfrepotes_mysql_db.sql
-```
-
-### Step 2 — Compute checksum
-
-The script computes a SHA-256 hash for the dump.
-
-This is used to avoid reimporting an unchanged dump on every launch.
-
-### Step 3 — Create or start MariaDB
-
-The temporary MariaDB container is named:
-
-```text
-phpbb-mariadb
-```
-
-It uses:
-
-- root password: `phpbbroot`
-- database name: `surfrepotes`
-
-### Step 4 — Import only if needed
-
-If the dump hash has changed, the database is rebuilt and the dump is imported again.
-
-If the hash is the same, the launcher skips reimporting.
+The full migration should be executed in the following order.
 
 ---
 
-## 7. Network setup
+### Step 1 — Start Docker Desktop
 
-The Discourse Dev Container and MariaDB container must share the same Docker network.
+On Windows, start Docker Desktop and wait until it is ready.
 
-The shared network name is:
-
-```text
-phpbb_import
-```
-
-### Why this matters
-
-Discourse runs inside a container, and MariaDB runs inside another container.
-Without a shared Docker network, the importer cannot resolve `phpbb-mariadb` by name.
-
-### Expected connection flow
-
-- MariaDB container joins `phpbb_import`
-- Discourse dev container joins `phpbb_import`
-- the importer resolves `phpbb-mariadb` via Docker DNS
+You can let `lancer_discourse.bat` do this automatically.
 
 ---
 
-## 8. Dev Container workflow
+### Step 2 — Launch the preparation batch file
 
-After `lancer_discourse.bat` prepares the environment:
+Run:
 
-1. Open the project in VS Code.
-2. Reopen it in the Dev Container.
-3. Run the dependency setup if needed:
+```bat
+lancer_discourse.bat
+```
+
+This will:
+
+1. start Docker Desktop;
+2. verify the dump exists;
+3. compute its SHA-256 hash;
+4. create or reuse `phpbb-mariadb`;
+5. import the SQL dump if needed;
+6. ensure `phpbb_import` exists;
+7. open the Discourse repository in VS Code.
+
+---
+
+### Step 3 — Open the project in VS Code
+
+The batch file opens the project from WSL into VS Code.
+
+Then:
+
+- reopen the project in the **Dev Container**;
+- wait for the container to finish building;
+- open a terminal inside the container.
+
+This step is required because the import is executed from the Dev Container, not from plain Windows or plain WSL.
+
+---
+
+### Step 4 — Prepare the Dev Container
+
+Inside the Dev Container, run:
 
 ```bash
 ./setup-devcontainer.sh
 ```
 
-4. Verify network visibility:
+This installs missing native dependencies and Ruby gems.
+
+If everything is already installed, this step may complete quickly.
+
+---
+
+### Step 5 — Confirm database reachability
+
+Inside the Dev Container, check that the MariaDB container is visible:
 
 ```bash
 getent hosts phpbb-mariadb
 ```
 
-5. Run the import:
+If this does not resolve, the Docker network is not ready yet.
+
+In that case, return to WSL and run:
+
+```bash
+./surfrepotes-migration.sh
+```
+
+This connects the containers to the shared network.
+
+---
+
+### Step 6 — Validate the importer configuration
+
+Review `surfrepotes.yml` and confirm:
+
+- MariaDB host is `phpbb-mariadb`;
+- schema is `surfrepotes`;
+- prefix is `phpbb3_`;
+- target URL is `http://localhost:3000`;
+- `phpbb_base_dir` points to `/workspace/discourse/phpbb_data`.
+
+For the first migration test, keep file-related options disabled unless you are explicitly testing files.
+
+---
+
+### Step 7 — Run the first controlled import
+
+From the Dev Container, launch:
 
 ```bash
 ./run-surfrepotes.sh
@@ -326,124 +386,182 @@ or directly:
 bundle exec ruby script/import_scripts/phpbb3.rb script/import_scripts/phpbb3/surfrepotes.yml
 ```
 
-6. Open Discourse:
+#### What to watch during the import
 
-```text
-http://localhost:3000
-```
+- MariaDB connection errors;
+- category mapping problems;
+- missing parent posts;
+- skipped users;
+- import warnings related to polls or private messages;
+- unexpected file or attachment errors.
+
+The first run should be treated as a controlled import test.
 
 ---
 
-## 9. Import configuration details
+### Step 8 — Inspect the import result
 
-### Database section
+After the import finishes, check the Discourse forum in the browser.
 
-The importer connects to the temporary MariaDB instance using:
+Validate at least:
 
-- host: `phpbb-mariadb`
-- port: `3306`
-- username: `root`
-- password: `phpbbroot`
-- schema: `surfrepotes`
-- prefix: `phpbb3_`
+- users;
+- categories;
+- topics;
+- posts;
+- private messages;
+- timestamps;
+- internal links;
+- overall forum structure.
 
-### Import section
+If the result is acceptable, you can keep the same configuration and rerun only if needed.
 
-The configuration currently enables:
+---
 
-- `private_messages: true`
-- `polls: true`
+### Step 9 — Optional file and media handling
 
-The configuration currently disables:
+Only after the core forum data is working should you consider enabling media-related options.
 
-- `attachments: false`
-- `avatars.uploaded: false`
-- `avatars.gallery: false`
-- `avatars.remote: false`
-- `passwords: false`
-- `likes: false`
+Possible file types:
 
-### Files section
+- attachments;
+- avatars;
+- smilies;
+- inline images.
 
-The base directory is set to:
+If you want to use files, the importer expects a phpBB data directory under:
 
 ```text
 /workspace/discourse/phpbb_data
 ```
 
-This path is only needed when importing files such as:
-
-- attachments;
-- avatars;
-- smilies.
+You can then enable the corresponding options in `surfrepotes.yml`.
 
 ---
 
-## 10. Migration phases
+### Step 10 — Final validation
 
-### Phase A — Environment preparation
+Once the import is complete, confirm:
 
-- start Docker Desktop;
-- ensure WSL Ubuntu is available;
-- open the Discourse project in VS Code;
-- create/reuse the MariaDB temporary container;
-- connect the containers to `phpbb_import`.
-
-### Phase B — Source database preparation
-
-- verify the SQL dump exists;
-- hash the dump;
-- import it into MariaDB if it is new or changed.
-
-### Phase C — Discourse import
-
-- reopen the project in the Dev Container;
-- install native dependencies if necessary;
-- run the importer through `run-surfrepotes.sh` or the direct Ruby command.
-
-### Phase D — Validation
-
-- check the import results in Discourse;
-- confirm the main forum objects are present;
-- review warnings and skipped records.
-
-### Phase E — Optional media handling
-
-- only if needed, prepare `phpbb_data/files` and `phpbb_data/images`;
-- enable attachments and avatar options later.
+- the forum opens normally in Discourse;
+- the main counts are coherent;
+- posts and topics render correctly;
+- usernames are mapped as expected;
+- private messages are present if enabled;
+- file uploads work if you enabled them;
+- the local forum is usable at `http://localhost:3000`.
 
 ---
 
-## 11. Validation checklist
+## 6. Database preparation flow
 
-After the import, verify at minimum:
+### 6.1 Verify the source dump
 
-- users imported correctly;
-- categories imported correctly;
-- topics imported correctly;
-- posts imported correctly;
-- private messages preserved if enabled;
-- poll data imported if enabled;
-- timestamps look correct;
-- internal links resolve sensibly;
-- the Discourse forum is accessible in the browser.
+The source SQL dump is:
+
+```text
+C:\Users\flore\source\repos\Surfrepotes\Travail\Input\surfrepotes_mysql_db.sql
+```
+
+and in WSL:
+
+```text
+/mnt/c/Users/flore/source/repos/Surfrepotes/Travail/Input/surfrepotes_mysql_db.sql
+```
+
+The launcher refuses to continue if the file is missing.
 
 ---
 
-## 12. What is obsolete now
+### 6.2 Compute and store the hash
 
-The following are legacy and should not be treated as the main migration path anymore:
+The SHA-256 hash is used to detect whether the dump changed.
+
+If the hash is unchanged and the target database already exists, the script avoids doing a full reimport.
+
+---
+
+### 6.3 Restore MariaDB if necessary
+
+The temporary database container is:
+
+```text
+phpbb-mariadb
+```
+
+It is created with:
+
+- `MARIADB_ROOT_PASSWORD=phpbbroot`
+- `MARIADB_DATABASE=surfrepotes`
+
+If the SQL dump changes, the launcher can rebuild the database and import it again.
+
+---
+
+### 6.4 Keep the database isolated
+
+The MariaDB instance is only a temporary migration source.
+
+It is not the final production database.
+
+---
+
+## 7. Docker network setup
+
+The shared network used by the migration is:
+
+```text
+phpbb_import
+```
+
+### Why it is required
+
+The Discourse Dev Container must resolve `phpbb-mariadb` by container name.
+
+### Expected result
+
+After both containers are connected:
+
+- `phpbb-mariadb` is reachable from Discourse;
+- the importer can connect using the hostname defined in `surfrepotes.yml`;
+- the import can start normally.
+
+---
+
+## 8. Validation checklist
+
+After the import, verify at least the following:
+
+- total user count;
+- total category count;
+- total topic count;
+- total post count;
+- private message behavior;
+- poll behavior;
+- username mapping;
+- timestamps;
+- browser rendering;
+- internal links;
+- optional attachments and media if enabled.
+
+For a realistic test, inspect several sample topics and several user profiles.
+
+---
+
+## 9. What is obsolete now
+
+The following are legacy and should not be used as the main migration path anymore:
 
 - rebuilding the phpBB forum locally via XAMPP;
-- simulating the old forum from an FTP clone as the central workflow;
-- export/convert/import JSON pipeline as the primary strategy;
-- custom API-based import scripts as the main migration path.
+- simulating the forum from a full FTP clone as the central workflow;
+- export → convert → import JSON/NDJSON pipelines as the primary strategy;
+- custom API-based import scripts as the main migration method.
 
-These may still exist as historical context, but they are not the current operating model.
+These references may still appear in historical documents, but they are no longer the active migration model.
 
 ---
 
-## 13. Practical quick start
+## 10. Practical quick start
 
 ### On Windows
 
@@ -453,14 +571,14 @@ Run:
 lancer_discourse.bat
 ```
 
-### Then in VS Code
+### In VS Code
 
-- reopen in the Dev Container;
+- reopen the project in the Dev Container;
 - run `./setup-devcontainer.sh` if needed;
-- verify `phpbb-mariadb` is reachable;
+- verify the MariaDB host resolves;
 - run `./run-surfrepotes.sh`.
 
-### Then validate
+### In the browser
 
 Open:
 
@@ -472,15 +590,16 @@ and inspect the imported forum.
 
 ---
 
-## 14. Summary
+## 11. Summary
 
 Current migration flow:
 
 1. start Docker Desktop;
 2. verify the SQL dump;
-3. restore/update MariaDB if needed;
+3. restore or reuse MariaDB;
 4. connect MariaDB and Discourse to `phpbb_import`;
-5. open the project in the Discourse Dev Container;
-6. run the import with `run-surfrepotes.sh`;
-7. validate the imported forum in Discourse;
-8. handle files/media later if needed.
+5. open the Discourse repository in the Dev Container;
+6. install dependencies if needed;
+7. run the import with `run-surfrepotes.sh`;
+8. validate the imported forum;
+9. optionally enable files/media later.
