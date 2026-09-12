@@ -1,0 +1,16 @@
+:8080 {
+    log {
+        output stdout
+        format console
+    }
+
+    @auth header Authorization "Bearer mon_super_token_123"
+
+    handle @auth {
+        reverse_proxy 127.0.0.1:1234
+    }
+
+    handle {
+        respond "Unauthorized" 401
+    }
+}

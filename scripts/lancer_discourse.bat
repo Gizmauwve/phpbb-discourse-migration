@@ -25,6 +25,8 @@ set "MARIADB_CONTAINER=phpbb-mariadb"
 set "MARIADB_ROOT_PASSWORD=phpbbroot"
 set "MARIADB_DATABASE=surfrepotes"
 
+echo ATTENTION le réseau doit être adapté via une console WSL
+
 set "IMPORT_NETWORK=phpbb_import"
 set "DISCOURSE_CONTAINER=epic_fermi"
 
